@@ -15,9 +15,11 @@ import android.net.NetworkInfo;
 import android.os.AsyncTask;
 import android.os.Build;
 import android.os.Environment;
+import android.os.Handler;
 import android.support.v4.app.NotificationCompat;
 import android.support.v7.app.AppCompatActivity;
 import android.os.Bundle;
+import android.util.Log;
 import android.view.View;
 import android.widget.AdapterView;
 import android.widget.ArrayAdapter;
@@ -55,15 +57,16 @@ import static java.lang.Thread.sleep;
 
 public class MainActivity extends AppCompatActivity {
 
-
     Notification notification;
     NotificationManager notificationManager;
     final int id = 10;
+    int prg = 0;
     ListView listView;
     Button button;
     EditText editText;
     ProgressBar pBar;
     boolean run_down = true;
+    Handler handler;
     String url1 = "http://pagalworld.co/?page_file=search&id=";
     String url2 = "&name=";
     String url3 = "&submit=Search";
@@ -283,7 +286,7 @@ public class MainActivity extends AppCompatActivity {
                     public void onClick(DialogInterface dialog, int which) {
                         dialog.dismiss();
                         run_down = false;
-
+                        new downloadFile().cancel(true);
                         Toast.makeText(MainActivity.this, "Download cancelled", Toast.LENGTH_LONG).show();
                     }
                 });
@@ -346,6 +349,7 @@ public class MainActivity extends AppCompatActivity {
 
     public class downloadFile extends AsyncTask<String, String, String>{
 
+        Runnable r;
         NotificationCompat.Builder mBuilder =
                 new NotificationCompat.Builder(MainActivity.this)
                         .setSmallIcon(R.mipmap.ic_launcher)
@@ -358,6 +362,21 @@ public class MainActivity extends AppCompatActivity {
             super.onPreExecute();
             run_down = true;
             showDialog(progress_bar_type);
+            handler = new Handler();
+            r = new Runnable() {
+                @Override
+                public void run() {
+                    mBuilder.setProgress(100, prg, false);
+                    notificationManager.notify(0, mBuilder.build());
+                    try {
+                        Thread.sleep(1000);
+                    } catch (InterruptedException e) {
+
+                    }
+                    handler.post(this);
+                }
+            };
+            handler.post(r);
         }
 
         @Override
@@ -379,12 +398,12 @@ public class MainActivity extends AppCompatActivity {
                         //sleep(1000);
                         publishProgress("" + (int) ((total * 100) / length));
                         ou.write(data, 0, count);
+                        if(isCancelled())
+                            break;
                     }
                     ou.flush();
                     ou.close();
                     in.close();
-//                    if(isCancelled())
-//                        break;
                 } catch (MalformedURLException e) {
                     e.printStackTrace();
                 } catch (FileNotFoundException e) {
@@ -401,14 +420,15 @@ public class MainActivity extends AppCompatActivity {
 
         protected void onProgressUpdate(String... progress) {
             pDialog.setProgress(Integer.parseInt(progress[0]));
-            mBuilder.setProgress(100, Integer.parseInt(progress[0]), false);
-            notificationManager.notify(0, mBuilder.build());
+            prg = Integer.parseInt(progress[0]);
         }
 
         @Override
         protected void onPostExecute(String file_url) {
             dismissDialog(progress_bar_type);
-            notificationManager.cancel(id);
+            notificationManager.cancel(0);
+            prg = 0;
+            handler.removeCallbacks(r);
         }
     }
 
