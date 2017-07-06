@@ -16,6 +16,9 @@ import android.os.AsyncTask;
 import android.os.Build;
 import android.os.Environment;
 import android.os.Handler;
+import android.os.Looper;
+import android.os.SystemClock;
+import android.os.Vibrator;
 import android.support.v4.app.NotificationCompat;
 import android.support.v7.app.AppCompatActivity;
 import android.os.Bundle;
@@ -47,6 +50,7 @@ import java.net.MalformedURLException;
 import java.net.URL;
 import java.net.URLConnection;
 import java.util.ArrayList;
+import java.util.Calendar;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -62,7 +66,7 @@ public class MainActivity extends AppCompatActivity {
     NotificationManager notificationManager;
     ListView listView;
     Button button;
-    int count = 0;
+    int[] count = {0, 0, 0, 0, 0};
     EditText editText;
     ProgressBar pBar;
     //Handler handler;
@@ -72,7 +76,6 @@ public class MainActivity extends AppCompatActivity {
     ProgressDialog mProgressDialog;
     AlertDialog.Builder downDialog;
     int qwerty = 0;
-    boolean flag = false;
     ArrayList<String> larray = new ArrayList<>();
     ArrayList<String> narray = new ArrayList<>();
     private ProgressDialog pDialog;
@@ -89,14 +92,7 @@ public class MainActivity extends AppCompatActivity {
         switch (requestCode) {
             case 200: {
                 if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
-
-                    if(count>5) {
-                        Toast.makeText(MainActivity.this, "Maximum 5 downloads allowed", Toast.LENGTH_SHORT).show();
-                        return;
-                    }
-                    count++;
-                    executorService.execute(new downFile(zxc, count));
-                    //new Thread(new downFile(zxc)).start();
+                    return;
                 } else {
                     Toast.makeText(MainActivity.this, "Please grant permission", Toast.LENGTH_SHORT).show();
                 }
@@ -109,6 +105,9 @@ public class MainActivity extends AppCompatActivity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            requestPermissions(permiss, requestCode);
+        }
         pBar = (ProgressBar) findViewById(R.id.tempPr);
         editText = (EditText) findViewById(R.id.editText);
         button = (Button) findViewById(R.id.button);
@@ -116,6 +115,13 @@ public class MainActivity extends AppCompatActivity {
         pBar.setVisibility(View.GONE);
         executorService = Executors.newFixedThreadPool(5);
         notificationManager = (NotificationManager) getApplicationContext().getSystemService(Context.NOTIFICATION_SERVICE);
+        listView.setOnItemLongClickListener(new AdapterView.OnItemLongClickListener() {
+            @Override
+            public boolean onItemLongClick(AdapterView<?> parent, View view, int position, long id) {
+                ((Vibrator)getSystemService(VIBRATOR_SERVICE)).vibrate(500);
+                return true;
+            }
+        });
         listView.setOnItemClickListener(new AdapterView.OnItemClickListener() {
             @Override
             public void onItemClick(AdapterView<?> parent, View view, final int position, long id) {
@@ -145,6 +151,12 @@ public class MainActivity extends AppCompatActivity {
         });
     }
 
+    private boolean checkPermission(){
+        int res1 = getApplicationContext().checkCallingOrSelfPermission(permiss[0]);
+        int res2 = getApplicationContext().checkCallingOrSelfPermission(permiss[1]);
+        return (res1==PackageManager.PERMISSION_GRANTED) && (res2==PackageManager.PERMISSION_GRANTED);
+    }
+
     private boolean isNetworkAvailable() {
         ConnectivityManager connectivityManager
                 = (ConnectivityManager) getSystemService(Context.CONNECTIVITY_SERVICE);
@@ -156,6 +168,7 @@ public class MainActivity extends AppCompatActivity {
         q = editText.getText().toString();
         AlertDialog.Builder al = new AlertDialog.Builder(MainActivity.this);
         al.setTitle("Select format");
+        al.setCancelable(true);
         ArrayAdapter<String> adapter = new ArrayAdapter<String>(MainActivity.this, android.R.layout.simple_list_item_1, formats);
         al.setAdapter(adapter, new DialogInterface.OnClickListener() {
             @Override
@@ -171,7 +184,6 @@ public class MainActivity extends AppCompatActivity {
                 }
             }
         });
-        al.setCancelable(false);
         al.show();
     }
 
@@ -341,16 +353,28 @@ public class MainActivity extends AppCompatActivity {
         @Override
         protected void onPostExecute(Void aVoid) {
             super.onPostExecute(aVoid);
-            Toast.makeText(MainActivity.this, "Started", Toast.LENGTH_SHORT).show();
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                requestPermissions(permiss, requestCode);
+            int pos = -1;
+            for(int i=0;i<5;i++){
+                if(count[i]==0){
+                    count[i] = 1;
+                    pos = i;
+                    break;
+                }
             }
-            else if(count>5){
+            if(pos==-1){
                 Toast.makeText(MainActivity.this, "Maximum 5 downloads allowed", Toast.LENGTH_SHORT).show();
+                return;
+            }
+            else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                if(!checkPermission()){
+                    requestPermissions(permiss, requestCode);
+                }
+                Toast.makeText(MainActivity.this, "Started", Toast.LENGTH_SHORT).show();
+                executorService.execute(new downFile(zxc, pos));
             }
             else{
-                count++;
-                executorService.execute(new downFile(zxc, count));
+                Toast.makeText(MainActivity.this, "Started", Toast.LENGTH_SHORT).show();
+                executorService.execute(new downFile(zxc, pos));
                 //new Thread(new downFile(zxc)).start();
             }
         }
@@ -368,6 +392,7 @@ public class MainActivity extends AppCompatActivity {
         int prg = 0, id;
         Handler handler;
         Runnable r;
+        long time = SystemClock.currentThreadTimeMillis(), tempTime;
 
         public downFile(String ul, int id){
             this.name_local = name;
@@ -395,8 +420,9 @@ public class MainActivity extends AppCompatActivity {
 
         @Override
         public void run() {
-            int count = 0;
+            int countt = 0;
             try {
+                Looper.prepare();
                 URL url = new URL(ul);
                 URLConnection conection = url.openConnection();
                 conection.connect();
@@ -406,17 +432,23 @@ public class MainActivity extends AppCompatActivity {
                 byte data[] = new byte[4096];
                 long total = 0;
                 int done = -1;
-                while ((count = in.read(data)) != -1) {
-                    total += count;
+                while ((countt = in.read(data)) != -1) {
+                    total += countt;
+                    tempTime = SystemClock.uptimeMillis();
                     prg = (int) ((total * 100) / length);
-                    ou.write(data, 0, count);
+                    ou.write(data, 0, countt);
                     int Done = (int) Math.round(total * 100.0 / length);
-                    if (done != Done) {
+                    if ((done != Done) && (tempTime - time >= 1000)) {
                         done = Done;
                         mBuilder.setProgress(100, done, false);
                         notificationManager.notify(id, mBuilder.build());
+                        time = SystemClock.uptimeMillis();
                     }
                 }
+                notificationManager.cancel(id);
+                prg = 0;
+                count[id] = 0;
+                Looper.loop();
                 ou.flush();
                 ou.close();
                 in.close();
@@ -425,10 +457,8 @@ public class MainActivity extends AppCompatActivity {
             } catch (FileNotFoundException e) {
                 e.printStackTrace();
             } catch (IOException e) {
-                e.printStackTrace();}
-            notificationManager.cancel(id);
-            prg = 0;
-            count = count - 1;
+                e.printStackTrace();
+            }
         }
     }
 
