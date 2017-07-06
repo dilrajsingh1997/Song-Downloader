@@ -51,22 +51,21 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.LinkedBlockingDeque;
 
 import static java.lang.Thread.sleep;
 
 public class MainActivity extends AppCompatActivity {
 
-    Notification notification;
     NotificationManager notificationManager;
-    final int id = 10;
-    int prg = 0;
     ListView listView;
     Button button;
+    int count = 0;
     EditText editText;
     ProgressBar pBar;
-    boolean run_down = true;
-    Handler handler;
+    //Handler handler;
     String url1 = "http://pagalworld.co/?page_file=search&id=";
     String url2 = "&name=";
     String url3 = "&submit=Search";
@@ -74,11 +73,11 @@ public class MainActivity extends AppCompatActivity {
     AlertDialog.Builder downDialog;
     int qwerty = 0;
     boolean flag = false;
-    downloadFile down = new downloadFile();
     ArrayList<String> larray = new ArrayList<>();
     ArrayList<String> narray = new ArrayList<>();
     private ProgressDialog pDialog;
     public static final int progress_bar_type = 0;
+    ExecutorService executorService;
     String[] permiss = {"android.permission.WRITE_EXTERNAL_STORAGE", "android.permission.READ_EXTERNAL_STORAGE"};
     int requestCode = 200;
     String zxc = "", name, format, q;
@@ -90,7 +89,14 @@ public class MainActivity extends AppCompatActivity {
         switch (requestCode) {
             case 200: {
                 if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
-                    new downloadFile().execute(zxc);
+
+                    if(count>5) {
+                        Toast.makeText(MainActivity.this, "Maximum 5 downloads allowed", Toast.LENGTH_SHORT).show();
+                        return;
+                    }
+                    count++;
+                    executorService.execute(new downFile(zxc, count));
+                    //new Thread(new downFile(zxc)).start();
                 } else {
                     Toast.makeText(MainActivity.this, "Please grant permission", Toast.LENGTH_SHORT).show();
                 }
@@ -108,6 +114,7 @@ public class MainActivity extends AppCompatActivity {
         button = (Button) findViewById(R.id.button);
         listView = (ListView) findViewById(R.id.listView);
         pBar.setVisibility(View.GONE);
+        executorService = Executors.newFixedThreadPool(5);
         notificationManager = (NotificationManager) getApplicationContext().getSystemService(Context.NOTIFICATION_SERVICE);
         listView.setOnItemClickListener(new AdapterView.OnItemClickListener() {
             @Override
@@ -189,7 +196,6 @@ public class MainActivity extends AppCompatActivity {
                 public void onClick(DialogInterface dialog, int which) {
                     mProgressDialog.dismiss();
                     run = false;
-                    down.cancel(true);
                 }
             });
             mProgressDialog.show();
@@ -268,7 +274,7 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected Dialog onCreateDialog(int id) {
         switch (id) {
-            case progress_bar_type: // we set this to 0
+            case progress_bar_type:
                 pDialog = new ProgressDialog(this);
                 pDialog.setMessage("Downloading file, please wait...");
                 pDialog.setIndeterminate(false);
@@ -285,8 +291,6 @@ public class MainActivity extends AppCompatActivity {
                     @Override
                     public void onClick(DialogInterface dialog, int which) {
                         dialog.dismiss();
-                        run_down = false;
-                        new downloadFile().cancel(true);
                         Toast.makeText(MainActivity.this, "Download cancelled", Toast.LENGTH_LONG).show();
                     }
                 });
@@ -341,13 +345,94 @@ public class MainActivity extends AppCompatActivity {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
                 requestPermissions(permiss, requestCode);
             }
+            else if(count>5){
+                Toast.makeText(MainActivity.this, "Maximum 5 downloads allowed", Toast.LENGTH_SHORT).show();
+            }
             else{
-                down.execute(zxc);
+                count++;
+                executorService.execute(new downFile(zxc, count));
+                //new Thread(new downFile(zxc)).start();
             }
         }
     }
 
-    public class downloadFile extends AsyncTask<String, String, String>{
+    public class downFile implements Runnable{
+
+        NotificationCompat.Builder mBuilder =
+                new NotificationCompat.Builder(MainActivity.this)
+                        .setSmallIcon(android.R.drawable.stat_sys_download)
+                        .setContentTitle("Downloading")
+                        .setContentText(name)
+                        .setOngoing(false);
+        String name_local, ul;
+        int prg = 0, id;
+        Handler handler;
+        Runnable r;
+
+        public downFile(String ul, int id){
+            this.name_local = name;
+            this.ul = ul;
+            this.id = id;
+            prg = 0;
+            mBuilder.setProgress(100, 0, false);
+            notificationManager.notify(id, mBuilder.build());
+            /*handler = new Handler();
+            r = new Runnable() {
+                @Override
+                public void run() {
+                        mBuilder.setProgress(100, prg, false);
+                        notificationManager.notify(0, mBuilder.build());
+                        try {
+                            sleep(1000);
+                        } catch (InterruptedException e) {
+
+                        }
+                    handler.post(this);
+                }
+            };
+            handler.post(r);*/
+        }
+
+        @Override
+        public void run() {
+            int count = 0;
+            try {
+                URL url = new URL(ul);
+                URLConnection conection = url.openConnection();
+                conection.connect();
+                int length = conection.getContentLength();
+                InputStream in = new BufferedInputStream(url.openStream(), 4096);
+                OutputStream ou = new FileOutputStream(Environment.getExternalStorageDirectory().toString() + "/Download/" + name + "." + format);
+                byte data[] = new byte[4096];
+                long total = 0;
+                int done = -1;
+                while ((count = in.read(data)) != -1) {
+                    total += count;
+                    prg = (int) ((total * 100) / length);
+                    ou.write(data, 0, count);
+                    int Done = (int) Math.round(total * 100.0 / length);
+                    if (done != Done) {
+                        done = Done;
+                        mBuilder.setProgress(100, done, false);
+                        notificationManager.notify(id, mBuilder.build());
+                    }
+                }
+                ou.flush();
+                ou.close();
+                in.close();
+            } catch (MalformedURLException e) {
+                e.printStackTrace();
+            } catch (FileNotFoundException e) {
+                e.printStackTrace();
+            } catch (IOException e) {
+                e.printStackTrace();}
+            notificationManager.cancel(id);
+            prg = 0;
+            count = count - 1;
+        }
+    }
+
+    /*public class downloadFile extends AsyncTask<String, String, String>{
 
         Runnable r;
         NotificationCompat.Builder mBuilder =
@@ -360,7 +445,6 @@ public class MainActivity extends AppCompatActivity {
         @Override
         protected void onPreExecute() {
             super.onPreExecute();
-            run_down = true;
             showDialog(progress_bar_type);
             handler = new Handler();
             r = new Runnable() {
@@ -430,6 +514,12 @@ public class MainActivity extends AppCompatActivity {
             prg = 0;
             handler.removeCallbacks(r);
         }
-    }
+    }*/
 
+    @Override
+    public void onBackPressed() {
+        notificationManager.cancelAll();
+        executorService.shutdownNow();
+        super.onBackPressed();
+    }
 }
